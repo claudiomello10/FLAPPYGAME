@@ -141,7 +141,7 @@ while True:
                 pipe_list.clear()
                 bird_rect.center = (100,512)
                 bird_movement = 0
-                score = 0
+                score = -1
         if event.type == BIRDFLAP:
             if bird_index < 2:
                 bird_index += 1
@@ -150,7 +150,7 @@ while True:
             bird_surface,bird_rect = bird_animation()
         if event.type == SPAWNPIPE:
             pipe_list.extend(create_pipe())
-            if game_active:
+            if game_active == True:
                 score += 1
             
     
