@@ -1,6 +1,8 @@
 import sys, pygame, random, deap
 
 
+#PLEU
+
 f = open("players.txt")
 players = int(f.read())
 print(players)
