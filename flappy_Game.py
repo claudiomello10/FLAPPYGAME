@@ -1,38 +1,49 @@
 import sys, pygame, random
+from multiprocessing import Pool
 
 import tensorflow as tf
 import numpy as np
-from keras import layers
-from keras.models import Sequential
 from keras.layers import Dense
-from keras.optimizers import Adam
-from keras.models import Model
 from tensorflow_probability.python.optimizer import differential_evolution_minimize
 
 
-    #   RUN VARIABLE                # CODE EXECUTION
+#   RUN VARIABLE                # CODE EXECUTION
 
-    #   "TRAIN_FROM_SCRATCH"        # Train the model from scratch
-    #   "TRAIN_WITH_LAST_RESULTS"   # Train the model with the last results
-    #   "RUN_WITH_LAST_RESULTS"     # Run the model with the last results
-    #   "RUN_BEST_RESULT"           # Run the model with the best result
+#   "TRAIN_FROM_SCRATCH"        # Train the model from scratch
+#   "TRAIN_WITH_LAST_RESULTS"   # Train the model with the last results
+#   "RUN_WITH_LAST_RESULTS"     # Run the model with the last results
+#   "RUN_BEST_RESULT"           # Run the model with the best result
 
+if tf.test.gpu_device_name():
+    print("GPU encontrado")
+else:
+    print("GPU não encontrado")
 
-
-RUN = "TRAIN_WITH_LAST_RESULTS"
-
+RUN = "TRAIN_FROM_SCRATCH"
 
 
 ITERATIONS = 500
-POPULATION_SIZE = 100
-NEURAL_NETWORK_SHAPE = (26, 5, 5, 1)
+POPULATION_SIZE = 50
+NEURAL_NETWORK_SHAPE = (7, 4, 2, 1)
 
 
+X_NORMALIZE = 700
+Y_NORMALIZE = 612
 
 
 class Birds:
 
     def calculate_output(self, inputs):
+        inputs = np.append(
+            inputs,
+            [
+                self.movement / 12,
+                self.rect.centery / Y_NORMALIZE,
+                self.rect.centerx / X_NORMALIZE,
+            ],
+        )
+        inputs = np.reshape(inputs, (1, NEURAL_NETWORK_SHAPE[0]))
+        inputs = tf.convert_to_tensor(inputs, dtype=tf.float32)
         aux1 = self.layers[0](inputs)
         aux2 = self.layers[1](aux1)
         aux3 = self.layers[2](aux2)
@@ -44,38 +55,44 @@ class Birds:
     def create_layers(self, weights):
         layers = [
             Dense(
-                5,
-                activation="sigmoid",
+                NEURAL_NETWORK_SHAPE[1],
+                activation="relu",
             ),
-            Dense(5, activation="sigmoid"),
-            Dense(1, activation="sigmoid"),
+            Dense(NEURAL_NETWORK_SHAPE[2], activation="relu"),
+            Dense(NEURAL_NETWORK_SHAPE[3], activation="sigmoid"),
         ]
-        layers[0].build((1, 26))
-        layers[1].build((1, 5))
-        layers[2].build((1, 5))
-
+        layers[0].build((1, NEURAL_NETWORK_SHAPE[0]))
+        layers[1].build((1, NEURAL_NETWORK_SHAPE[1]))
+        layers[2].build((1, NEURAL_NETWORK_SHAPE[2]))
 
         if weights is not None:
             current = 0
-            weight0 = weights[:26 * 5].reshape(26, 5)
-            current += 26 * 5
-            bias0 = weights[current:current + 5].reshape(5)
-            current += 5
-            weight1 = weights[current:current + 5 * 5].reshape(5, 5)
-            current += 5 * 5
-            bias1 = weights[current:current + 5].reshape(5)
-            current += 5
-            weight2 = weights[current:current + 5].reshape(
-                5, 1
+            weight0 = weights[
+                : NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
+            ].reshape(NEURAL_NETWORK_SHAPE[0], NEURAL_NETWORK_SHAPE[1])
+            current += NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
+            bias0 = weights[current : current + NEURAL_NETWORK_SHAPE[1]].reshape(
+                NEURAL_NETWORK_SHAPE[1]
             )
-            current += 5
-            bias2 = weights[current:current + 1].reshape(
-                1
+            current += NEURAL_NETWORK_SHAPE[1]
+            weight1 = weights[
+                current : current + NEURAL_NETWORK_SHAPE[1] * NEURAL_NETWORK_SHAPE[2]
+            ].reshape(NEURAL_NETWORK_SHAPE[1], NEURAL_NETWORK_SHAPE[2])
+            current += NEURAL_NETWORK_SHAPE[1] * NEURAL_NETWORK_SHAPE[2]
+            bias1 = weights[current : current + NEURAL_NETWORK_SHAPE[2]].reshape(
+                NEURAL_NETWORK_SHAPE[2]
+            )
+            current += NEURAL_NETWORK_SHAPE[2]
+            weight2 = weights[
+                current : current + NEURAL_NETWORK_SHAPE[2] * NEURAL_NETWORK_SHAPE[3]
+            ].reshape(NEURAL_NETWORK_SHAPE[2], NEURAL_NETWORK_SHAPE[3])
+            current += NEURAL_NETWORK_SHAPE[2] * NEURAL_NETWORK_SHAPE[3]
+            bias2 = weights[current : current + NEURAL_NETWORK_SHAPE[3]].reshape(
+                NEURAL_NETWORK_SHAPE[3]
             )
             layers[0].set_weights([weight0, bias0])
             layers[1].set_weights([weight1, bias1])
             layers[2].set_weights([weight2, bias2])
-        
 
         return layers
 
@@ -129,13 +146,9 @@ def draw_pipes(pipes):
 
 def check_collision(pipes, bird_rect):
     for pipe in pipes:
-        if (
-            bird_rect.colliderect(pipe)
-
-        ):
+        if bird_rect.colliderect(pipe):
             return (False, False)
-        if(           bird_rect.top <= -100
-            or bird_rect.bottom >= 900):
+        if bird_rect.top <= -100 or bird_rect.bottom >= 900:
             return (False, True)
     return (True, False)
 
@@ -202,7 +215,6 @@ pipe_surface = pygame.transform.scale2x(pipe_surface)
 def run(weight_list=None):
     weight_list = np.array(weight_list) if weight_list is not None else None
 
-
     if weight_list is not None:
         birds = []
         for i in range(weight_list.shape[0]):
@@ -216,30 +228,28 @@ def run(weight_list=None):
     wait = 0
     waiting = False
     while game_active == True:
-        pipe_parameters = np.asarray(pipe_list).flatten()
-        np.pad(
+        pipe_parameters = []
+        for pipe in pipe_list:
+            pipe_parameters.append(pipe.centerx / X_NORMALIZE)
+            pipe_parameters.append(pipe.centery / Y_NORMALIZE)
+        if pipe_parameters.__len__() > 4:
+            pipe_parameters = pipe_parameters[-4:]
+
+        pipe_parameters = np.asarray(pipe_parameters).flatten()
+        pipe_parameters = np.pad(
             pipe_parameters,
-            (0, 24 - pipe_parameters.size),
+            (4 - pipe_parameters.size, 0),
             "constant",
             constant_values=(0, 0),
         )
 
         for Bird in birds:
             if Bird.alive:
-                
-                specific_parameters = np.pad(
-                    pipe_parameters/100,
-                    (1, 24 - pipe_parameters.size),
-                    "constant",
-                    constant_values=(Bird.movement/12, 0),
-                )
-                specific_parameters = np.append(specific_parameters, Bird.rect.centery/1024)
-                specific_parameters = specific_parameters.reshape(1, 26)
-                result = Bird.calculate_output(specific_parameters)
-                
-                if result == True:
+                if Bird.calculate_output(pipe_parameters):
                     Bird.movement = 0
                     Bird.movement -= 10
+                    flap_sound.play()
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -264,40 +274,35 @@ def run(weight_list=None):
                 pipe_list.pop(0)
             pipe_list.extend(create_pipe())
             waiting = True
-            print("waiting")
-            
-            
 
-        if(waiting):
+        if waiting:
             wait += 1
-            if(wait > 20):
+            if wait > 20:
                 waiting = False
                 wait = 0
                 for Bird in birds:
                     if Bird.alive:
-                        Bird.score -= 20
+                        Bird.score -= 60
                 if game_active == True:
                     score += 1
-
 
         if not any(bird.alive for bird in birds):
             game_active = False
 
         if game_active:
-            
+
             for Bird in birds:
                 if Bird.alive:
-                    
+
                     Bird.score -= 1
                     (alive, penalidade) = check_collision(pipe_list, Bird.rect)
-                    if(penalidade):
+                    if penalidade:
                         Bird.score += 10
                     Bird.alive = alive
                     Bird.movement += gravity
                     rotated_bird = rotate_bird(Bird.surface, Bird.movement)
                     Bird.rect.centery += Bird.movement
                     screen.blit(rotated_bird, Bird.rect)
-                    
 
             # PIPES
             pipe_list = move_pipes(pipe_list)
@@ -311,21 +316,33 @@ def run(weight_list=None):
         if floor_x_pos <= -576:
             floor_x_pos = 0
         pygame.display.update()
-        clock.tick(120)
-    scores = tf.convert_to_tensor(np.array([bird.score for bird in birds]), dtype=tf.float32)
-    print(scores)
+    scores = tf.convert_to_tensor(
+        np.array([bird.score for bird in birds]), dtype=tf.float32
+    )
+    print(f"Best: {np.min(scores)*-1} Mean: {np.mean(scores)*-1}")
     return scores
-
 
 
 initial_weights = []
 for i in range(POPULATION_SIZE):
-    layer1K = np.random.uniform(low=-1.0, high=1.0, size=(26, 5)).flatten()
-    layer1B = np.random.uniform(low=-1.0, high=1.0, size=(5,1)).flatten()
-    layer2K = np.random.uniform(low=-1.0, high=1.0, size=(5,5)).flatten()
-    layer2B = np.random.uniform(low=-1.0, high=1.0, size=(5,1)).flatten()
-    layer3K = np.random.uniform(low=-1.0, high=1.0, size=(5,1)).flatten()
-    layer3B = np.random.uniform(low=-1.0, high=1.0, size=(1)).flatten()
+    layer1K = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[0], NEURAL_NETWORK_SHAPE[1])
+    ).flatten()
+    layer1B = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[1])
+    ).flatten()
+    layer2K = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[1], NEURAL_NETWORK_SHAPE[2])
+    ).flatten()
+    layer2B = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[2])
+    ).flatten()
+    layer3K = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[2], NEURAL_NETWORK_SHAPE[3])
+    ).flatten()
+    layer3B = np.random.uniform(
+        low=-1.0, high=1.0, size=(NEURAL_NETWORK_SHAPE[3])
+    ).flatten()
     # Concatenate all flattened arrays into a single array
     weights = np.concatenate([layer1K, layer1B, layer2K, layer2B, layer3K, layer3B])
     initial_weights.append(weights)
@@ -337,13 +354,7 @@ initial_weights = np.array(initial_weights)
 initial_weights_tensor = tf.convert_to_tensor(initial_weights)
 
 
-
-
-
-
-
-
-if (RUN == "TRAIN_FROM_SCRATCH"):
+if RUN == "TRAIN_FROM_SCRATCH":
 
     final_result = differential_evolution_minimize(
         run,
@@ -353,10 +364,11 @@ if (RUN == "TRAIN_FROM_SCRATCH"):
         differential_weight=1.5,
     )
 
-    np.save("final_result.npy", final_result)
+    np.savez("final_result.npz", *final_result)
 
 else:
-    final_result = np.load("final_result.npy", allow_pickle=True)
+    final_result = np.load("final_result.npz", allow_pickle=True)
+    final_result = [final_result[key] for key in final_result.files]
     converged = final_result[0]
     objective_evaluations = final_result[1]
     best_weights = final_result[2]
@@ -367,26 +379,31 @@ else:
     initial_scores = final_result[7]
     number_of_iterations = final_result[8]
 
-
-    if(RUN == "TRAIN_WITH_LAST_RESULTS"):
-
+    if RUN == "TRAIN_WITH_LAST_RESULTS":
 
         final_result = differential_evolution_minimize(
             run,
             initial_population=final_weights,
             population_size=POPULATION_SIZE,
             max_iterations=ITERATIONS,
-            differential_weight=1.5,
+            differential_weight=2.0,
+            crossover_prob=0.9,
         )
-        np.save("final_result.npy", final_result)
+        np.savez("final_result.npz", *final_result)
 
-
-    elif(RUN == "RUN_WITH_LAST_RESULTS"):
+    elif RUN == "RUN_WITH_LAST_RESULTS":
         run(final_weights)
-    elif(RUN == "RUN_BEST_RESULT"):
-        np_best_weights = best_weights.numpy().reshape(1,NEURAL_NETWORK_SHAPE[0]*NEURAL_NETWORK_SHAPE[1]+NEURAL_NETWORK_SHAPE[1]+NEURAL_NETWORK_SHAPE[1]*NEURAL_NETWORK_SHAPE[2]+NEURAL_NETWORK_SHAPE[2]+NEURAL_NETWORK_SHAPE[2]*NEURAL_NETWORK_SHAPE[3]+NEURAL_NETWORK_SHAPE[3])
+    elif RUN == "RUN_BEST_RESULT":
+        np_best_weights = best_weights.numpy().reshape(
+            1,
+            NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
+            + NEURAL_NETWORK_SHAPE[1]
+            + NEURAL_NETWORK_SHAPE[1] * NEURAL_NETWORK_SHAPE[2]
+            + NEURAL_NETWORK_SHAPE[2]
+            + NEURAL_NETWORK_SHAPE[2] * NEURAL_NETWORK_SHAPE[3]
+            + NEURAL_NETWORK_SHAPE[3],
+        )
         run(np_best_weights)
     else:
         print("Invalid run mode")
         exit(1)
-
