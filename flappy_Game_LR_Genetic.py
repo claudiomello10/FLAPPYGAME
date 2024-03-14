@@ -11,24 +11,38 @@ from tensorflow_probability.python.optimizer import differential_evolution_minim
 
 #   "TRAIN_FROM_SCRATCH"        # Train the model from scratch
 #   "TRAIN_WITH_LAST_RESULTS"   # Train the model with the last results
+#   "TRAIN_WITH_BEST_BIRDS"     # Train the model with the best birds
 #   "RUN_WITH_LAST_RESULTS"     # Run the model with the last results
 #   "RUN_BEST_RESULT"           # Run the model with the best result
+#   "RUN_WITH_BEST_BIRDS"       # Run the model with the best birds
 
 if tf.test.gpu_device_name():
     print("GPU encontrado")
 else:
     print("GPU não encontrado")
 
-RUN = "TRAIN_FROM_SCRATCH"
+RUN = "TRAIN_WITH_BEST_BIRDS"
+
+BROAD_ITERATIONS = 5
+ITERATIONS = 50
+POPULATION_SIZE = 10
+DIFERENTIAL_WEIGHT = 2
+CROSSOVER_PROB = 1
 
 
-ITERATIONS = 500
-POPULATION_SIZE = 50
 NEURAL_NETWORK_SHAPE = (7, 4, 2, 1)
 
 
 X_NORMALIZE = 700
 Y_NORMALIZE = 612
+
+iteration_counter = 0
+
+
+class Best_Birds:
+    def __init__(self, weights, score):
+        self.weights = weights
+        self.score = score
 
 
 class Birds:
@@ -37,9 +51,9 @@ class Birds:
         inputs = np.append(
             inputs,
             [
-                self.movement / 12,
-                self.rect.centery / Y_NORMALIZE,
-                self.rect.centerx / X_NORMALIZE,
+                self.movement,
+                self.rect.centery,
+                self.rect.centerx,
             ],
         )
         inputs = np.reshape(inputs, (1, NEURAL_NETWORK_SHAPE[0]))
@@ -65,7 +79,18 @@ class Birds:
         layers[1].build((1, NEURAL_NETWORK_SHAPE[1]))
         layers[2].build((1, NEURAL_NETWORK_SHAPE[2]))
 
+        initialized_weights = np.array([])
+        for layer in layers:
+            initialized_weights = np.append(
+                initialized_weights, layer.get_weights()[0].flatten()
+            )
+            initialized_weights = np.append(
+                initialized_weights, layer.get_weights()[1].flatten()
+            )
+        self.weights = initialized_weights
+
         if weights is not None:
+            self.weights = weights
             current = 0
             weight0 = weights[
                 : NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
@@ -116,6 +141,14 @@ class Birds:
         self.layers = self.create_layers(weights)
 
 
+previous_best = np.load("best_birds.npy", allow_pickle=True).tolist()
+
+
+BEST = []
+if previous_best.__len__() > 0:
+    BEST = previous_best
+
+
 def draw_floor(floor_x_pos):
 
     screen.blit(floor_surface, (floor_x_pos, 900))
@@ -126,30 +159,33 @@ def create_pipe():
     random_pipe_pos = random.randrange(400, 800, 100)
     bottom_pipe = pipe_surface.get_rect(midtop=(700, random_pipe_pos))
     top_pipe = pipe_surface.get_rect(midbottom=(700, random_pipe_pos - 300))
-    return bottom_pipe, top_pipe
+    return [[bottom_pipe, top_pipe]]
 
 
 def move_pipes(pipes):
-    for pipe in pipes:
-        pipe.centerx -= 4
+    for pipe_couple in pipes:
+        for pipe in pipe_couple:
+            pipe.centerx -= 4
     return pipes
 
 
 def draw_pipes(pipes):
-    for pipe in pipes:
-        if pipe.bottom >= 1024:
-            screen.blit(pipe_surface, pipe)
-        else:
-            flip_pipe = pygame.transform.flip(pipe_surface, False, True)
-            screen.blit(flip_pipe, pipe)
+    for pipe_couple in pipes:
+        for pipe in pipe_couple:
+            if pipe.bottom >= 1024:
+                screen.blit(pipe_surface, pipe)
+            else:
+                flip_pipe = pygame.transform.flip(pipe_surface, False, True)
+                screen.blit(flip_pipe, pipe)
 
 
 def check_collision(pipes, bird_rect):
-    for pipe in pipes:
-        if bird_rect.colliderect(pipe):
-            return (False, False)
-        if bird_rect.top <= -100 or bird_rect.bottom >= 900:
-            return (False, True)
+    for pipe_couple in pipes:
+        for pipe in pipe_couple:
+            if bird_rect.colliderect(pipe):
+                return (False, False)
+            if bird_rect.top <= -100 or bird_rect.bottom >= 900:
+                return (False, True)
     return (True, False)
 
 
@@ -173,46 +209,8 @@ def score_display(score):
     screen.blit(score_surface, score_rect)
 
 
-pygame.mixer.pre_init(frequency=44100, size=32, channels=1, buffer=512)
-pygame.init()
-
-screen = pygame.display.set_mode((576, 1024))
-clock = pygame.time.Clock()
-game_font = pygame.font.Font("FlappyBirdy.ttf", 72)
-
-# PLEU
-players = 1
-
-
-# VARIAVEIS
-gravity = 0.25
-
-# SOUND
-flap_sound = pygame.mixer.Sound("audio/wing.wav")
-
-
-# SURFACES
-floor_surface = pygame.image.load("sprites/base.png").convert()
-floor_surface = pygame.transform.scale2x(floor_surface)
-
-
-bg_surface = pygame.image.load("sprites/background-day.png").convert()
-bg_surface = pygame.transform.scale2x(bg_surface)
-
-
-BIRDFLAP = pygame.USEREVENT + 1
-pygame.time.set_timer(BIRDFLAP, 200)
-
-# bird_surface = pygame.image.load("sprites/bluebird-midflap.png").convert_alpha()
-# bird_surface = pygame.transform.scale2x(bird_surface)
-# bird_rect = bird_surface.get_rect(center = (100,512))
-
-
-pipe_surface = pygame.image.load("sprites/pipe-green.png").convert()
-pipe_surface = pygame.transform.scale2x(pipe_surface)
-
-
 def run(weight_list=None):
+    global BEST, iteration_counter
     weight_list = np.array(weight_list) if weight_list is not None else None
 
     if weight_list is not None:
@@ -230,10 +228,15 @@ def run(weight_list=None):
     while game_active == True:
         pipe_parameters = []
         for pipe in pipe_list:
-            pipe_parameters.append(pipe.centerx / X_NORMALIZE)
-            pipe_parameters.append(pipe.centery / Y_NORMALIZE)
-        if pipe_parameters.__len__() > 4:
-            pipe_parameters = pipe_parameters[-4:]
+            if pipe[0].centerx > 0:
+                pipe_parameters.append(
+                    [
+                        (pipe[0].centerx + pipe[1].centerx) / 2,
+                        pipe[0].centery + pipe[1].centery,
+                    ]
+                )
+        if pipe_parameters.__len__() > 2:
+            pipe_parameters = pipe_parameters[0:2]
 
         pipe_parameters = np.asarray(pipe_parameters).flatten()
         pipe_parameters = np.pad(
@@ -248,7 +251,6 @@ def run(weight_list=None):
                 if Bird.calculate_output(pipe_parameters):
                     Bird.movement = 0
                     Bird.movement -= 10
-                    flap_sound.play()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -266,11 +268,10 @@ def run(weight_list=None):
                         )
 
         screen.blit(bg_surface, (0, 0))
-        if (pipe_list.__len__() > 0 and pipe_list[-1].centerx < 200) or (
+        if (pipe_list.__len__() > 0 and pipe_list[-1][0].centerx < 200) or (
             pipe_list.__len__() == 0
         ):
-            if pipe_list.__len__() >= 6:
-                pipe_list.pop(0)
+            if pipe_list.__len__() >= 3:
                 pipe_list.pop(0)
             pipe_list.extend(create_pipe())
             waiting = True
@@ -297,7 +298,7 @@ def run(weight_list=None):
                     Bird.score -= 1
                     (alive, penalidade) = check_collision(pipe_list, Bird.rect)
                     if penalidade:
-                        Bird.score += 10
+                        Bird.score += 1000
                     Bird.alive = alive
                     Bird.movement += gravity
                     rotated_bird = rotate_bird(Bird.surface, Bird.movement)
@@ -319,8 +320,56 @@ def run(weight_list=None):
     scores = tf.convert_to_tensor(
         np.array([bird.score for bird in birds]), dtype=tf.float32
     )
-    print(f"Best: {np.min(scores)*-1} Mean: {np.mean(scores)*-1}")
+
+    for bird in birds:
+        BEST.append(Best_Birds(bird.weights, bird.score))
+
+    BEST.sort(key=lambda x: x.score)
+    BEST = BEST[:100]
+    iteration_counter += 1
+
+    print(
+        f"Best: {np.min(scores)*-1} Mean: {np.mean(scores)*-1} Iteration: {iteration_counter}/{ITERATIONS}"
+    )
     return scores
+
+
+# pygame.mixer.pre_init(frequency=44100, size=32, channels=1, buffer=512)
+pygame.init()
+
+screen = pygame.display.set_mode((576, 1024))
+game_font = pygame.font.Font("FlappyBirdy.ttf", 72)
+
+# PLEU
+players = 1
+
+
+# VARIAVEIS
+gravity = 0.25
+
+# SOUND
+# flap_sound = pygame.mixer.Sound("audio/wing.wav")
+
+
+# SURFACES
+floor_surface = pygame.image.load("sprites/base.png").convert()
+floor_surface = pygame.transform.scale2x(floor_surface)
+
+
+bg_surface = pygame.image.load("sprites/background-day.png").convert()
+bg_surface = pygame.transform.scale2x(bg_surface)
+
+
+BIRDFLAP = pygame.USEREVENT + 1
+pygame.time.set_timer(BIRDFLAP, 200)
+
+# bird_surface = pygame.image.load("sprites/bluebird-midflap.png").convert_alpha()
+# bird_surface = pygame.transform.scale2x(bird_surface)
+# bird_rect = bird_surface.get_rect(center = (100,512))
+
+
+pipe_surface = pygame.image.load("sprites/pipe-green.png").convert()
+pipe_surface = pygame.transform.scale2x(pipe_surface)
 
 
 initial_weights = []
@@ -356,15 +405,20 @@ initial_weights_tensor = tf.convert_to_tensor(initial_weights)
 
 if RUN == "TRAIN_FROM_SCRATCH":
 
+    print(
+        f"\nTraining from scratch\n\nIterations: {ITERATIONS}\n\nPopulation size: {POPULATION_SIZE}\n\nDifferential weight: {DIFERENTIAL_WEIGHT}\n\nCrossover probability: {CROSSOVER_PROB}\n"
+    )
+
     final_result = differential_evolution_minimize(
         run,
         initial_population=initial_weights_tensor,
         population_size=POPULATION_SIZE,
         max_iterations=ITERATIONS,
-        differential_weight=1.5,
+        differential_weight=DIFERENTIAL_WEIGHT,
     )
 
     np.savez("final_result.npz", *final_result)
+    np.save("best_birds.npy", BEST)
 
 else:
     final_result = np.load("final_result.npz", allow_pickle=True)
@@ -381,19 +435,62 @@ else:
 
     if RUN == "TRAIN_WITH_LAST_RESULTS":
 
+        print(
+            f"\nTraining with last results\n\nIterations: {ITERATIONS}\n\nPopulation size: {final_weights.shape[0]}\n\nDifferential weight: {DIFERENTIAL_WEIGHT}\n\nCrossover probability: {CROSSOVER_PROB}\n"
+        )
+
         final_result = differential_evolution_minimize(
             run,
             initial_population=final_weights,
-            population_size=POPULATION_SIZE,
+            population_size=final_weights.shape[0],
             max_iterations=ITERATIONS,
-            differential_weight=2.0,
-            crossover_prob=0.9,
+            differential_weight=DIFERENTIAL_WEIGHT,
+            crossover_prob=CROSSOVER_PROB,
         )
         np.savez("final_result.npz", *final_result)
+        np.save("best_birds.npy", BEST)
+
+    elif RUN == "TRAIN_WITH_BEST_BIRDS":
+        best_birds_weights = np.array([bird.weights for bird in BEST])
+        best_birds_scores = np.array([bird.score for bird in BEST])
+        print(best_birds_weights.shape[0])
+
+        print(
+            f"\nTraining with best birds\n\nIterations: {ITERATIONS}\n\nPopulation size: {best_birds_weights.shape[0]}\n\nDifferential weight: {DIFERENTIAL_WEIGHT}\n\nCrossover probability: {CROSSOVER_PROB}\n\nPrevious best score: {np.min(best_birds_scores)*-1}\n\n"
+        )
+        for i in range(BROAD_ITERATIONS):
+            iteration_counter = 0
+            print(f"Running broad iteration {i+1}/{BROAD_ITERATIONS}\n")
+            best_birds_weights = np.array([bird.weights for bird in BEST])
+            final_result = differential_evolution_minimize(
+                run,
+                initial_population=best_birds_weights,
+                population_size=best_birds_weights.shape[0],
+                max_iterations=ITERATIONS,
+                differential_weight=DIFERENTIAL_WEIGHT,
+                crossover_prob=CROSSOVER_PROB,
+            )
+            np.savez("final_result.npz", *final_result)
+            np.save("best_birds.npy", BEST)
+
+    elif RUN == "RUN_WITH_BEST_BIRDS":
+        best_birds = np.load("best_birds.npy", allow_pickle=True)
+        best_birds_scores = np.array([bird.score for bird in best_birds])
+        best_birds_weights = np.array([bird.weights for bird in best_birds])
+        print(
+            f"Running with best birds\n\nPopulation size: {best_birds_weights.shape[0]}\n\nBest score: {np.min(best_birds_scores)*-1}\n\nMean score: {np.mean(best_birds_scores)*-1}\n\n"
+        )
+        run(best_birds_weights)
 
     elif RUN == "RUN_WITH_LAST_RESULTS":
+        print(
+            f"Running with last results\n\nPopulation size: {final_weights.shape[0]}\n\nBest score: {np.min(final_scores)*-1}\n\nMean score: {np.mean(final_scores)*-1}\n\n"
+        )
         run(final_weights)
     elif RUN == "RUN_BEST_RESULT":
+        print(
+            f"Running with best result\n\nBest score: {np.min(best_scores)*-1}\n\nMean score: {np.mean(best_scores)*-1}\n\n"
+        )
         np_best_weights = best_weights.numpy().reshape(
             1,
             NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
