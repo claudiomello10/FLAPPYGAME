@@ -251,7 +251,7 @@ def run(weight_list=None, slow=False, fps=60):
         pipe_parameters = np.asarray(pipe_parameters).flatten()
         pipe_parameters = np.pad(
             pipe_parameters,
-            (4 - pipe_parameters.size, 0),
+            (0, 4 - pipe_parameters.size),
             "constant",
             constant_values=(0, 0),
         )
@@ -493,7 +493,9 @@ def run_best_result():
 
     print(f"Running with best result\n\n")
 
-    run(best_birds, slow=True, fps=fps)
+    result = run(best_birds, slow=True, fps=fps)
+
+    print(f"Score: {result}")
 
 
 if __name__ == "__main__":

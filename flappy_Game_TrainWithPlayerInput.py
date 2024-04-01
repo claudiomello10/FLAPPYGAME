@@ -1,16 +1,7 @@
 import sys, pygame, random
 from multiprocessing import Pool
 
-import tensorflow as tf
 import numpy as np
-from keras.layers import Dense
-from tensorflow_probability.python.optimizer import differential_evolution_minimize
-
-
-if tf.test.gpu_device_name():
-    print("GPU encontrado")
-else:
-    print("GPU não encontrado")
 
 
 NEURAL_NETWORK_SHAPE = (7, 4, 2, 1)
