@@ -5,15 +5,12 @@ import numpy as np
 import pygad
 import inquirer
 
+# Check if the GPU is available
+if torch.cuda.is_available():
+    print("Torch está usando a GPU.")
+else:
+    print("Torch está usando a CPU.")
 
-#   RUN VARIABLE                # CODE EXECUTION
-
-#   "TRAIN_FROM_SCRATCH"        # Train the model from scratch
-#   "TRAIN_WITH_LAST_RESULTS"   # Train the model with the last results
-#   "TRAIN_WITH_BEST_BIRDS"     # Train the model with the best birds
-#   "RUN_WITH_LAST_RESULTS"     # Run the model with the last results
-#   "RUN_BEST_RESULT"           # Run the model with the best result
-#   "RUN_WITH_BEST_BIRDS"       # Run the model with the best birds
 
 questions = [
     inquirer.List(
