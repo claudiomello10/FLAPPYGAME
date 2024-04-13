@@ -426,10 +426,6 @@ def train_with_last_results():
     best_bird = np.load("best_birds.npy", allow_pickle=True)
     print(best_bird)
 
-    print(
-        f"\nTraining with last results\n\nIterations: {GENERATIONS}\n\nPopulation size: {POPULATION_SIZE}\n\n"
-    )
-
     generations = input("Enter the number of generations: ")
     try:
         generations = int(generations)
@@ -448,9 +444,12 @@ def train_with_last_results():
 
     initial_population = np.array([best_bird for _ in range(POPULATION_SIZE)])
 
+    print(
+        f"\nTraining with last results\n\nIterations: {GENERATIONS}\n\nPopulation size: {POPULATION_SIZE}\n\n"
+    )
+
     ga_instance = pygad.GA(
         initial_population=initial_population,
-        sol_per_pop=population_size,
         num_genes=NEURAL_NETWORK_SHAPE[0] * NEURAL_NETWORK_SHAPE[1]
         + NEURAL_NETWORK_SHAPE[1]
         + NEURAL_NETWORK_SHAPE[1] * NEURAL_NETWORK_SHAPE[2]
