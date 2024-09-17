@@ -44,11 +44,11 @@ loss_function1 = CustomMSELoss().type(torch.complex128)
 model = NeuralNetwork()
 
 # Create an instance of the optimizer
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 num_epochs = 10000
 input_data = torch.complex(torch.randn(7), torch.randn(7))
-target_data = torch.complex(torch.randn(1), torch.randn(1)).type(torch.complex128)
+target_data = torch.complex(torch.randn(1), torch.tensor(0.4247329842347)).type(torch.complex128)
 
 # Training loop
 for epoch in range(num_epochs):
